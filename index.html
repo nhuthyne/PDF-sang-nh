@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Chuyển PDF thành Ảnh</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.min.js"></script>
+    <style>
+        /* CSS trang trí giao diện cho gọn gàng, dễ nhìn */
+        body { 
+            font-family: Arial, sans-serif; 
+            padding: 20px; 
+            max-width: 800px; 
+            margin: auto; 
+            background-color: #f0f2f5; 
+        }
+        .container { 
+            background: #fff; 
+            padding: 30px; 
+            border-radius: 12px; 
+            box-shadow: 0 4px 12px rgba(0,0,0,0.1); 
+        }
+        h1 { font-size: 24px; color: #333; margin-top: 0; }
+        .upload-area {
+            border: 2px dashed #007bff;
+            padding: 20px;
+            text-align: center;
+            border-radius: 8px;
+            background: #f8fbff;
+            margin-bottom: 20px;
+        }
+        input[type="file"] { font-size: 16px; cursor: pointer; }
+        #output { display: flex; flex-direction: column; gap: 25px; margin-top: 20px; }
+        .page-container { 
+            border: 1px solid #ddd; 
+            padding: 15px; 
+            border-radius: 8px; 
+            text-align: center; 
+        }
+        .page-container h3 { margin: 0 0 15px 0; color: #555; font-size: 18px; }
+        .page-container img { 
+            max-width: 100%; 
+            height: auto; 
+            border: 1px solid #ccc; 
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1); 
+        }
+        .download-btn { 
+            display: inline-block; 
+            margin-top: 15px; 
+            padding: 10px 20px; 
+            background: #28a745; 
+            color: white; 
+            text-decoration: none; 
+            border-radius: 5px; 
+            font-weight: bold;
+        }
+        .download-btn:hover { background: #218838; }
+        #loading { 
+            display: none; 
+            color: #007bff; 
+            font-weight: bold; 
+            text-align: center; 
+            margin: 10px 0; 
+        }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h1>📄 Trích xuất ảnh từ PDF</h1>
+    <p>Chọn file PDF từ máy tính của em. Mọi thao tác xử lý đều diễn ra ngay trên trình duyệt, không lưu lên mạng.</p>
+    
+    <div class="upload-area">
+        <input type="file" id="pdf-upload" accept="application/pdf" />
+    </div>
+    
+    <div id="loading">⏳ Đang xử lý tài liệu, em đợi một chút nhé...</div>
+    <div id="output"></div>
+</div>
+
+<script>
+    // Cấu hình worker cho PDF.js (bắt buộc để chạy mượt mà không đơ trình duyệt)
+    pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.worker.min.js';
+
+    const uploadInput = document.getElementById('pdf-upload');
+    const outputDiv = document.getElementById('output');
+    const loadingDiv = document.getElementById('loading');
+
+    uploadInput.addEventListener('change', function(e) {
+        const file = e.target.files[0];
+        if (!file) return;
+        if (file.type !== 'application/pdf') {
+            alert('Em vui lòng chọn đúng định dạng file PDF nhé!');
+            return;
+        }
+
+        // Dọn dẹp giao diện cũ khi người dùng up file mới
+        outputDiv.innerHTML = '';
+        loadingDiv.style.display = 'block';
+
+        const fileReader = new FileReader();
+        fileReader.onload = function() {
+            // Chuyển file thành mảng byte để thư viện đọc
+            const typedarray = new Uint8Array(this.result);
+
+            pdfjsLib.getDocument(typedarray).promise.then(pdf => {
+                const numPages = pdf.numPages;
+                let pagesProcessed = 0;
+
+                // Xử lý lần lượt từng trang
+                for (let i = 1; i <= numPages; i++) {
+                    pdf.getPage(i).then(page => {
+                        // Thiết lập độ phân giải (zoom)
+                        // Em có thể tăng số 2.0 lên 3.0 nếu muốn ảnh xuất ra nét hơn nữa
+                        const scale = 2.0; 
+                        const viewport = page.getViewport({ scale: scale });
+
+                        // Tạo canvas ẩn để vẽ trang PDF ra đó
+                        const canvas = document.createElement('canvas');
+                        const context = canvas.getContext('2d');
+                        canvas.height = viewport.height;
+                        canvas.width = viewport.width;
+
+                        const renderContext = {
+                            canvasContext: context,
+                            viewport: viewport
+                        };
+
+                        page.render(renderContext).promise.then(() => {
+                            // Chuyển canvas thành ảnh dạng Base64
+                            const imgData = canvas.toDataURL('image/png');
+
+                            // Xây dựng khối HTML để hiển thị ảnh
+                            const pageDiv = document.createElement('div');
+                            pageDiv.className = 'page-container';
+
+                            const title = document.createElement('h3');
+                            title.innerText = `Trang ${i}`;
+                            pageDiv.appendChild(title);
+
+                            const img = document.createElement('img');
+                            img.src = imgData;
+                            pageDiv.appendChild(img);
+
+                            // Tạo nút tải ảnh
+                            const downloadBtn = document.createElement('a');
+                            downloadBtn.className = 'download-btn';
+                            downloadBtn.href = imgData;
+                            downloadBtn.download = `Trang_${i}.png`; // Tên file tải về
+                            downloadBtn.innerText = '⬇️ Tải ảnh này';
+                            pageDiv.appendChild(downloadBtn);
+
+                            outputDiv.appendChild(pageDiv);
+
+                            pagesProcessed++;
+                            // Tắt thông báo đang xử lý khi đã làm xong trang cuối
+                            if (pagesProcessed === numPages) {
+                                loadingDiv.style.display = 'none'; 
+                            }
+                        });
+                    });
+                }
+            }).catch(err => {
+                console.error('Lỗi khi đọc PDF:', err);
+                alert('Có lỗi xảy ra khi đọc file. Em kiểm tra lại xem file có bị mật khẩu không nhé.');
+                loadingDiv.style.display = 'none';
+            });
+        };
+
+        // Bắt đầu đọc file
+        fileReader.readAsArrayBuffer(file);
+    });
+</script>
+
+</body>
+</html>
